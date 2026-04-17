@@ -260,6 +260,29 @@ const trail = createConsensus({
 })
 ```
 
+## Change Notifications
+
+Get notified when the consensus status changes:
+
+```ts
+const swing = createConsensus({
+  decaySeconds: DECAY_PRESETS.daily,
+  onChange: (newStatus, prevStatus) => {
+    console.log(`Status changed: ${prevStatus?.status} → ${newStatus.status}`)
+
+    // Trigger webhook, update UI, send notification, etc.
+    if (newStatus.level === 'confirmed') {
+      sendPushNotification(`Swing is ${newStatus.rawStatus}!`)
+    }
+  }
+})
+
+swing.addReport({ status: 'up', verified: true })
+// onChange fires: null → confirmed_up
+```
+
+The callback fires when `status` or `level` changes, not on every report.
+
 ## Persistence
 
 Save and restore consensus state to survive restarts:

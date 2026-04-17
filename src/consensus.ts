@@ -10,12 +10,16 @@ import {
   ConsensusOptions,
   ConsensusSnapshot,
   ConfidenceLevel,
+  OnChangeCallback,
 } from './types.js'
 
 /** Package version for snapshot compatibility */
-const VERSION = '0.2.0'
+const VERSION = '0.3.0'
 
-const DEFAULT_OPTIONS: Required<ConsensusOptions> = {
+/** Options for the core algorithm (excludes onChange) */
+type AlgorithmOptions = Required<Omit<ConsensusOptions, 'onChange'>>
+
+const DEFAULT_OPTIONS: AlgorithmOptions = {
   decaySeconds: 86400, // 24 hours
   verificationBoost: 15,
   confirmThreshold: 2,
@@ -124,8 +128,11 @@ export function createConsensus(
   options: ConsensusOptions,
   snapshot?: ConsensusSnapshot
 ): Consensus {
-  const config = { ...DEFAULT_OPTIONS, ...options }
+  // Separate algorithm options from callback
+  const { onChange, ...rest } = options
+  const algorithmConfig: AlgorithmOptions = { ...DEFAULT_OPTIONS, ...rest }
   const reports: NormalizedReport[] = []
+  let lastStatus: ConsensusResult | null = null
 
   // Restore from snapshot if provided
   if (snapshot?.reports) {
@@ -137,6 +144,28 @@ export function createConsensus(
         weight: r.weight,
       })
     }
+    // Initialize lastStatus from restored data
+    if (reports.length > 0) {
+      lastStatus = calculateConsensus(reports, algorithmConfig)
+    }
+  }
+
+  /** Check if status changed and fire callback */
+  const checkAndNotify = (): void => {
+    if (!onChange) return
+
+    const newStatus = calculateConsensus(reports, algorithmConfig)
+
+    // Fire callback if status or level changed
+    if (
+      lastStatus === null ||
+      newStatus.status !== lastStatus.status ||
+      newStatus.level !== lastStatus.level
+    ) {
+      onChange(newStatus, lastStatus)
+    }
+
+    lastStatus = newStatus
   }
 
   return {
@@ -147,12 +176,19 @@ export function createConsensus(
         verified: report.verified ?? false,
         weight: report.weight ?? 1,
       })
+      checkAndNotify()
     },
 
     addReports(newReports: Report[]): void {
       for (const report of newReports) {
-        this.addReport(report)
+        reports.push({
+          status: report.status,
+          timestamp: report.timestamp ?? new Date(),
+          verified: report.verified ?? false,
+          weight: report.weight ?? 1,
+        })
       }
+      checkAndNotify()
     },
 
     clear(): void {
@@ -160,7 +196,7 @@ export function createConsensus(
     },
 
     getStatus(now: Date = new Date()): ConsensusResult {
-      return calculateConsensus(reports, config, now)
+      return calculateConsensus(reports, algorithmConfig, now)
     },
 
     toJSON(): ConsensusSnapshot {
@@ -212,7 +248,7 @@ export function createConsensus(
  */
 export function calculateConsensus(
   reports: NormalizedReport[],
-  options: Required<ConsensusOptions>,
+  options: AlgorithmOptions,
   now: Date = new Date()
 ): ConsensusResult {
   const nowMs = now.getTime()
@@ -323,7 +359,7 @@ function determineLevel(
   agreementRatio: number,
   verifiedCount: number,
   stalenessSeconds: number,
-  options: Required<ConsensusOptions>
+  options: AlgorithmOptions
 ): ConfidenceLevel {
   const hasEnoughReports = reportCount >= options.confirmThreshold
   const hasStrongAgreement = agreementRatio >= options.agreementThreshold
@@ -360,7 +396,7 @@ function calculateConfidence(
   agreementRatio: number,
   verifiedCount: number,
   stalenessSeconds: number,
-  options: Required<ConsensusOptions>
+  options: AlgorithmOptions
 ): number {
   if (reportCount === 0) return 0
 

@@ -91,6 +91,26 @@ export interface ConsensusResult {
 }
 
 /**
+ * Callback fired when the consensus status changes.
+ *
+ * @example
+ * ```ts
+ * const swing = createConsensus({
+ *   decaySeconds: 86400,
+ *   onChange: (newStatus, prevStatus) => {
+ *     if (newStatus.level === 'confirmed') {
+ *       sendNotification(`Swing is ${newStatus.rawStatus}!`)
+ *     }
+ *   }
+ * })
+ * ```
+ */
+export type OnChangeCallback = (
+  newStatus: ConsensusResult,
+  prevStatus: ConsensusResult | null
+) => void
+
+/**
  * Configuration options for creating a consensus calculator.
  *
  * @example
@@ -143,6 +163,21 @@ export interface ConsensusOptions {
    * @default "unknown"
    */
   unknownStatus?: string
+
+  /**
+   * Callback fired when the consensus status changes after adding a report.
+   * Useful for triggering notifications, webhooks, or UI updates.
+   *
+   * @example
+   * ```ts
+   * onChange: (newStatus, prevStatus) => {
+   *   if (newStatus.rawStatus !== prevStatus?.rawStatus) {
+   *     sendAlert(`Status changed to ${newStatus.rawStatus}`)
+   *   }
+   * }
+   * ```
+   */
+  onChange?: OnChangeCallback
 }
 
 /**

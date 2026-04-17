@@ -30,6 +30,7 @@ export type {
   ConsensusOptions,
   ConsensusSnapshot,
   ConfidenceLevel,
+  OnChangeCallback,
 } from './types.js'
 
 /**

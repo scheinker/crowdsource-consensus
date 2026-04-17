@@ -194,6 +194,95 @@ describe('presets', () => {
   })
 })
 
+describe('onChange callback', () => {
+  it('fires on first report', () => {
+    let callCount = 0
+    let lastNew: any = null
+    let lastPrev: any = null
+
+    const consensus = createConsensus({
+      decaySeconds: 3600,
+      onChange: (newStatus, prevStatus) => {
+        callCount++
+        lastNew = newStatus
+        lastPrev = prevStatus
+      }
+    })
+
+    consensus.addReport({ status: 'up' })
+
+    assert.strictEqual(callCount, 1)
+    assert.strictEqual(lastNew.rawStatus, 'up')
+    assert.strictEqual(lastPrev, null)
+  })
+
+  it('fires when status changes', () => {
+    const changes: string[] = []
+
+    const consensus = createConsensus({
+      decaySeconds: 3600,
+      onChange: (newStatus) => {
+        changes.push(newStatus.status)
+      }
+    })
+
+    consensus.addReport({ status: 'up' })
+    consensus.addReport({ status: 'up' }) // Same status, might not fire
+    consensus.addReport({ status: 'down' })
+    consensus.addReport({ status: 'down' })
+    consensus.addReport({ status: 'down' }) // Should shift to likely_down
+
+    // Should have fired for meaningful changes
+    assert.ok(changes.length >= 2)
+    assert.ok(changes.some(s => s.includes('up')))
+    assert.ok(changes.some(s => s.includes('down')))
+  })
+
+  it('does not fire when status unchanged', () => {
+    let callCount = 0
+
+    const consensus = createConsensus({
+      decaySeconds: 3600,
+      confirmThreshold: 10, // High threshold so status stays "possibly"
+      onChange: () => { callCount++ }
+    })
+
+    consensus.addReport({ status: 'up' })
+    const countAfterFirst = callCount
+
+    consensus.addReport({ status: 'up' })
+    consensus.addReport({ status: 'up' })
+
+    // Should only fire once (first report changes from unknown to possibly_up)
+    assert.strictEqual(callCount, countAfterFirst)
+  })
+
+  it('fires on addReports batch', () => {
+    let callCount = 0
+
+    const consensus = createConsensus({
+      decaySeconds: 3600,
+      onChange: () => { callCount++ }
+    })
+
+    consensus.addReports([
+      { status: 'up' },
+      { status: 'up' },
+      { status: 'up' }
+    ])
+
+    // Should fire once for the batch, not three times
+    assert.strictEqual(callCount, 1)
+  })
+
+  it('works without onChange callback', () => {
+    const consensus = createConsensus({ decaySeconds: 3600 })
+    // Should not throw
+    consensus.addReport({ status: 'up' })
+    assert.strictEqual(consensus.getStatus().rawStatus, 'up')
+  })
+})
+
 describe('serialization', () => {
   it('serializes to JSON', () => {
     const consensus = createConsensus({ decaySeconds: 3600 })

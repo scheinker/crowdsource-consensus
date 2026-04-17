@@ -1,6 +1,6 @@
 {
   "name": "crowdsource-consensus",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Turn noisy crowdsourced reports into confidence-weighted status with graceful time decay",
   "type": "module",
   "main": "dist/index.js",
