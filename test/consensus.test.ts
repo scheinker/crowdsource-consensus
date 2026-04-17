@@ -194,6 +194,64 @@ describe('presets', () => {
   })
 })
 
+describe('serialization', () => {
+  it('serializes to JSON', () => {
+    const consensus = createConsensus({ decaySeconds: 3600 })
+    consensus.addReport({ status: 'up', verified: true })
+    consensus.addReport({ status: 'down' })
+
+    const snapshot = consensus.toJSON()
+
+    assert.strictEqual(snapshot.reports.length, 2)
+    assert.strictEqual(snapshot.reports[0].status, 'up')
+    assert.strictEqual(snapshot.reports[0].verified, true)
+    assert.strictEqual(snapshot.reports[1].status, 'down')
+    assert.ok(snapshot.savedAt)
+    assert.ok(snapshot.version)
+  })
+
+  it('restores from snapshot', () => {
+    const original = createConsensus({ decaySeconds: 3600 })
+    original.addReport({ status: 'up', verified: true })
+    original.addReport({ status: 'up' })
+
+    const snapshot = original.toJSON()
+    const restored = createConsensus({ decaySeconds: 3600 }, snapshot)
+
+    assert.strictEqual(restored.reportCount, 2)
+    const result = restored.getStatus()
+    assert.strictEqual(result.status, 'confirmed_up')
+  })
+
+  it('survives JSON round-trip', () => {
+    const original = createConsensus({ decaySeconds: 3600 })
+    original.addReport({ status: 'open', verified: true })
+    original.addReport({ status: 'open' })
+    original.addReport({ status: 'closed' })
+
+    // Simulate saving to storage and restoring
+    const json = JSON.stringify(original.toJSON())
+    const parsed = JSON.parse(json)
+    const restored = createConsensus({ decaySeconds: 3600 }, parsed)
+
+    assert.strictEqual(restored.reportCount, 3)
+    const result = restored.getStatus()
+    assert.strictEqual(result.rawStatus, 'open')
+    assert.strictEqual(result.verifiedCount, 1)
+  })
+
+  it('handles empty snapshot', () => {
+    const consensus = createConsensus({ decaySeconds: 3600 }, { reports: [], savedAt: '', version: '0.1.0' })
+    assert.strictEqual(consensus.reportCount, 0)
+    assert.strictEqual(consensus.getStatus().status, 'unknown')
+  })
+
+  it('handles undefined snapshot', () => {
+    const consensus = createConsensus({ decaySeconds: 3600 }, undefined)
+    assert.strictEqual(consensus.reportCount, 0)
+  })
+})
+
 describe('edge cases', () => {
   it('handles empty status string', () => {
     const consensus = createConsensus({ decaySeconds: 3600 })

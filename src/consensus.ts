@@ -1,10 +1,19 @@
+/**
+ * Core consensus algorithm for crowdsource-consensus.
+ * @module
+ */
+
 import {
   Report,
   NormalizedReport,
   ConsensusResult,
   ConsensusOptions,
+  ConsensusSnapshot,
   ConfidenceLevel,
 } from './types.js'
+
+/** Package version for snapshot compatibility */
+const VERSION = '0.2.0'
 
 const DEFAULT_OPTIONS: Required<ConsensusOptions> = {
   decaySeconds: 86400, // 24 hours
@@ -16,16 +25,121 @@ const DEFAULT_OPTIONS: Required<ConsensusOptions> = {
 }
 
 /**
- * Create a consensus calculator with the given options.
+ * A consensus calculator instance.
  */
-export function createConsensus(options: ConsensusOptions) {
+export interface Consensus {
+  /**
+   * Add a single report to the consensus pool.
+   *
+   * @example
+   * ```ts
+   * consensus.addReport({ status: 'up' })
+   * consensus.addReport({ status: 'up', verified: true })
+   * ```
+   */
+  addReport(report: Report): void
+
+  /**
+   * Add multiple reports at once.
+   *
+   * @example
+   * ```ts
+   * consensus.addReports([
+   *   { status: 'up', verified: true },
+   *   { status: 'up' },
+   *   { status: 'down' },
+   * ])
+   * ```
+   */
+  addReports(reports: Report[]): void
+
+  /**
+   * Clear all reports from the pool.
+   */
+  clear(): void
+
+  /**
+   * Calculate the current consensus status.
+   *
+   * @param now - Optional timestamp to use as "now" (useful for testing)
+   * @returns The consensus result with status, confidence, and metadata
+   *
+   * @example
+   * ```ts
+   * const result = consensus.getStatus()
+   * if (result.level === 'confirmed') {
+   *   console.log(`Status is definitely ${result.rawStatus}`)
+   * }
+   * ```
+   */
+  getStatus(now?: Date): ConsensusResult
+
+  /**
+   * Serialize the consensus state for persistence.
+   *
+   * @returns A JSON-serializable snapshot of all reports
+   *
+   * @example
+   * ```ts
+   * const snapshot = consensus.toJSON()
+   * localStorage.setItem('consensus', JSON.stringify(snapshot))
+   * ```
+   */
+  toJSON(): ConsensusSnapshot
+
+  /**
+   * The total number of reports in the pool (including stale ones).
+   */
+  readonly reportCount: number
+}
+
+/**
+ * Create a consensus calculator with the given options.
+ *
+ * @param options - Configuration options
+ * @param snapshot - Optional saved state to restore from
+ * @returns A new consensus calculator instance
+ *
+ * @example
+ * ```ts
+ * // Basic usage
+ * const swing = createConsensus({ decaySeconds: 86400 })
+ *
+ * // With all options
+ * const parking = createConsensus({
+ *   decaySeconds: 300,        // 5 minutes
+ *   verificationBoost: 20,    // GPS is valuable
+ *   confirmThreshold: 3,      // Need 3 reports
+ *   agreementThreshold: 0.7,  // 70% agreement
+ *   baseConfidence: 60,       // Start lower
+ *   unknownStatus: 'no_data', // Custom unknown
+ * })
+ *
+ * // Restore from saved state
+ * const saved = JSON.parse(localStorage.getItem('swing'))
+ * const restored = createConsensus({ decaySeconds: 86400 }, saved)
+ * ```
+ */
+export function createConsensus(
+  options: ConsensusOptions,
+  snapshot?: ConsensusSnapshot
+): Consensus {
   const config = { ...DEFAULT_OPTIONS, ...options }
   const reports: NormalizedReport[] = []
 
+  // Restore from snapshot if provided
+  if (snapshot?.reports) {
+    for (const r of snapshot.reports) {
+      reports.push({
+        status: r.status,
+        timestamp: new Date(r.timestamp),
+        verified: r.verified,
+        weight: r.weight,
+      })
+    }
+  }
+
   return {
-    /**
-     * Add a report to the consensus pool.
-     */
     addReport(report: Report): void {
       reports.push({
         status: report.status,
@@ -35,32 +149,33 @@ export function createConsensus(options: ConsensusOptions) {
       })
     },
 
-    /**
-     * Add multiple reports at once.
-     */
     addReports(newReports: Report[]): void {
       for (const report of newReports) {
         this.addReport(report)
       }
     },
 
-    /**
-     * Clear all reports.
-     */
     clear(): void {
       reports.length = 0
     },
 
-    /**
-     * Get the current consensus status.
-     */
     getStatus(now: Date = new Date()): ConsensusResult {
       return calculateConsensus(reports, config, now)
     },
 
-    /**
-     * Get the number of reports (including stale ones).
-     */
+    toJSON(): ConsensusSnapshot {
+      return {
+        reports: reports.map(r => ({
+          status: r.status,
+          timestamp: r.timestamp.toISOString(),
+          verified: r.verified,
+          weight: r.weight,
+        })),
+        savedAt: new Date().toISOString(),
+        version: VERSION,
+      }
+    },
+
     get reportCount(): number {
       return reports.length
     },
@@ -68,8 +183,32 @@ export function createConsensus(options: ConsensusOptions) {
 }
 
 /**
- * Calculate consensus from a set of reports.
- * This is the core algorithm - pure function, no side effects.
+ * Calculate consensus from a set of reports (pure function).
+ *
+ * Use this for one-off calculations without maintaining state.
+ *
+ * @param reports - Array of normalized reports
+ * @param options - Full options (all fields required)
+ * @param now - Timestamp to use as "now"
+ * @returns The consensus result
+ *
+ * @example
+ * ```ts
+ * const result = calculateConsensus(
+ *   [
+ *     { status: 'up', timestamp: new Date(), verified: true, weight: 1 },
+ *     { status: 'up', timestamp: new Date(), verified: false, weight: 1 },
+ *   ],
+ *   {
+ *     decaySeconds: 3600,
+ *     verificationBoost: 15,
+ *     confirmThreshold: 2,
+ *     agreementThreshold: 0.6,
+ *     baseConfidence: 70,
+ *     unknownStatus: 'unknown',
+ *   }
+ * )
+ * ```
  */
 export function calculateConsensus(
   reports: NormalizedReport[],
@@ -177,6 +316,7 @@ export function calculateConsensus(
 
 /**
  * Determine the confidence level based on report characteristics.
+ * @internal
  */
 function determineLevel(
   reportCount: number,
@@ -213,6 +353,7 @@ function determineLevel(
 
 /**
  * Calculate a 0-100 confidence score.
+ * @internal
  */
 function calculateConfidence(
   reportCount: number,

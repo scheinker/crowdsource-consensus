@@ -158,6 +158,28 @@ const result = consensus.getStatus()
 
 Remove all reports.
 
+### `consensus.toJSON()`
+
+Serialize the consensus state for persistence.
+
+```ts
+const snapshot = consensus.toJSON()
+// {
+//   reports: [{ status, timestamp, verified, weight }, ...],
+//   savedAt: '2026-04-17T...',
+//   version: '0.1.0'
+// }
+```
+
+### Restoring from a snapshot
+
+Pass a saved snapshot as the second argument to `createConsensus`:
+
+```ts
+const saved = JSON.parse(localStorage.getItem('swing'))
+const consensus = createConsensus({ decaySeconds: 86400 }, saved)
+```
+
 ### `calculateConsensus(reports, options, now?)`
 
 Pure function version for one-off calculations:
@@ -237,6 +259,31 @@ const trail = createConsensus({
   unknownStatus: 'check_conditions',
 })
 ```
+
+## Persistence
+
+Save and restore consensus state to survive restarts:
+
+```ts
+import { createConsensus, DECAY_PRESETS } from 'crowdsource-consensus'
+
+// Create and populate
+const swing = createConsensus({ decaySeconds: DECAY_PRESETS.daily })
+swing.addReport({ status: 'up', verified: true })
+
+// Save to any storage
+const snapshot = swing.toJSON()
+await redis.set('swing:consensus', JSON.stringify(snapshot))
+
+// Later: restore from storage
+const saved = JSON.parse(await redis.get('swing:consensus'))
+const restored = createConsensus({ decaySeconds: DECAY_PRESETS.daily }, saved)
+
+// Picks up where it left off
+restored.getStatus() // { status: 'confirmed_up', ... }
+```
+
+Works with localStorage, Redis, PostgreSQL, S3, or any JSON-compatible storage.
 
 ## How It Works
 
